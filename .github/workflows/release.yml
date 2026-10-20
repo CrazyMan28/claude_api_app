@@ -1,0 +1,30 @@
+name: Build and Release EXE
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          if ((Get-Item requirements.txt).Length -gt 2) { pip install -r requirements.txt }
+      - name: Build exe
+        run: pyinstaller --onefile --name claude_api_app main.py
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: claude_api_app v1.0.${{ github.run_number }}
+          files: dist/claude_api_app.exe
