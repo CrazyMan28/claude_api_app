@@ -322,7 +322,8 @@ describe('stop keeps partial text', () => {
     const agent = new Agent({ settings, sessions, ledger, streamer: () => streamer, emit: (_id, ev) => events.push(ev), platform: 'linux' })
     const s = await sessions.create({ projectDir, model: 'claude-opus-5-5', effort: 'high' })
     const run = agent.send(s.id, 'go')
-    await new Promise((r) => setTimeout(r, 30))
+    // stop only once the partial text has streamed (a fixed delay races slow CI runners)
+    await waitFor(() => events.some((e) => e.type === 'text_delta'))
     agent.stop(s.id)
     await run
     expect(lastEnd().status).toBe('stopped')
