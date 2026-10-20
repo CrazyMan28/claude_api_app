@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Forge talks to the paired PC at http://100.x.y.z inside the Tailscale network. Tailscale
+  (WireGuard) encrypts and authenticates that traffic end to end, and the PC only listens on
+  its Tailscale address, so plain HTTP never leaves the encrypted tunnel. Android cannot scope
+  cleartext to an IP range, hence the base config.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

@@ -6,3 +6,4 @@ dist/
 test-results/
 .tmp/
 e2e/screenshots/
+mobile/www/

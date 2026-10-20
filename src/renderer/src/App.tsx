@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ChevronDown, CircleDollarSign, FolderOpen, PanelRight, PanelRightClose, ShieldCheck } from 'lucide-react'
+import { ChevronDown, CircleDollarSign, FolderOpen, Menu, PanelRight, PanelRightClose, ShieldCheck, WifiOff, X } from 'lucide-react'
 import type { AgentEvent, ApprovalDecision, ApprovalRequest, PublicSettings, Session, SessionSummary } from '@shared/types'
 import { EFFORTS, findModel, type Effort } from '@shared/models'
 import { Sidebar } from './components/Sidebar'
@@ -10,6 +10,7 @@ import { ApprovalCard } from './components/ApprovalCard'
 import { SidePanel } from './components/SidePanel'
 import { ModelOptions, SettingsModal } from './components/SettingsModal'
 import { Welcome } from './components/Welcome'
+import { ProjectPicker } from './components/ProjectPicker'
 import { basename, fmtCost } from './lib'
 
 interface Notice {
@@ -34,6 +35,10 @@ export function App() {
   const [showPanel, setShowPanel] = useState(() => window.innerWidth >= 1280)
   const [availableModels, setAvailableModels] = useState<string[] | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const mobile = window.forge.mobile
+  const [drawer, setDrawer] = useState(false)
+  const [picking, setPicking] = useState(false)
+  const [online, setOnline] = useState(true)
 
   const currentIdRef = useRef<string | null>(null)
   currentIdRef.current = current?.id ?? null
@@ -67,6 +72,13 @@ export function App() {
     stickRef.current = true
   }, [])
 
+  /** Runs and approvals may have started elsewhere (on the PC or another phone). */
+  const syncRunState = useCallback(async () => {
+    const [ids, pending] = await Promise.all([window.forge.runningSessions(), window.forge.pendingApprovals()])
+    setRunningIds(new Set(ids))
+    setApprovals(pending)
+  }, [])
+
   // initial load
   useEffect(() => {
     void (async () => {
@@ -75,9 +87,46 @@ export function App() {
       const list = await window.forge.listSessions()
       setSessions(list)
       if (list[0]) await openSession(list[0].id)
-      if (!st.hasApiKey) setShowSettings(true)
+      await syncRunState()
+      if (!st.hasApiKey && !mobile) setShowSettings(true)
     })()
+  }, [openSession, syncRunState, mobile])
+
+  // the session list changed on another device
+  useEffect(() => {
+    return window.forge.onSessionsChanged(() => {
+      void (async () => {
+        const list = await window.forge.listSessions()
+        setSessions(list)
+        const id = currentIdRef.current
+        if (id && !list.some((x) => x.id === id)) {
+          if (list[0]) await openSession(list[0].id)
+          else setCurrent(null)
+        }
+      })()
+    })
   }, [openSession])
+
+  // phone: after a reconnect, catch up on whatever happened while offline
+  useEffect(() => {
+    if (!mobile) return
+    let wasOnline = true
+    return mobile.onConnection((ok) => {
+      setOnline(ok)
+      if (ok && !wasOnline) {
+        void (async () => {
+          setSettings(await window.forge.getSettings())
+          await refreshSessions()
+          const id = currentIdRef.current
+          if (id) setCurrent(await window.forge.getSession(id))
+          liveRef.current = null
+          setLive(null)
+          await syncRunState()
+        })().catch(() => {})
+      }
+      wasOnline = ok
+    })
+  }, [mobile, refreshSessions, syncRunState])
 
   const flushLive = useCallback(() => {
     rafRef.current = null
@@ -235,6 +284,7 @@ export function App() {
   }
 
   const pickProject = async (): Promise<void> => {
+    if (mobile) return setPicking(true)
     const dir = await window.forge.pickDirectory()
     if (dir) await patchSession({ projectDir: dir })
   }
@@ -251,7 +301,7 @@ export function App() {
     Object.values(current?.toolMeta ?? {}).reduce((s, m) => s + (m.subagent?.cost ?? 0), 0)
   const hasMessages = (current?.messages.length ?? 0) > 0
   const canContinue = !!current && hasMessages && !!current.lastStop && current.lastStop !== 'completed'
-  const disabledReason = !settings?.hasApiKey ? 'Add your Anthropic API key in Settings to start' : null
+  const disabledReason = !settings?.hasApiKey ? (mobile ? 'Add your Anthropic API key in Forge on your PC to start' : 'Add your Anthropic API key in Settings to start') : null
   const modelInfo = current ? findModel(current.model) : undefined
   const isWin = window.forge.platform === 'win32'
 
@@ -259,14 +309,24 @@ export function App() {
     <>
       <div className="aurora" />
       <div className="grid-overlay" />
-      <div className="app">
+      <div className={`app ${mobile ? 'mobile' : ''} ${drawer ? 'drawer-open' : ''}`}>
         <header className={`titlebar ${isWin ? 'win' : ''}`}>
+          {mobile && (
+            <button className="icon-btn" onClick={() => setDrawer(!drawer)} title="Sessions" aria-label="Sessions">
+              {drawer ? <X size={18} /> : <Menu size={18} />}
+            </button>
+          )}
           <div className="brand">
             <div className="brand-mark">F</div>
             Forge <small>· Claude coding agent</small>
           </div>
           <div className="titlebar-spacer" />
-          <span className="muted no-drag" title="Approval mode (change in Settings)">
+          {mobile && !online && (
+            <span className="offline-pill">
+              <WifiOff size={12} /> offline
+            </span>
+          )}
+          <span className="muted no-drag approval-mode" title="Approval mode (change in Settings)">
             <ShieldCheck size={13} style={{ verticalAlign: -2 }} /> {settings?.approvalMode === 'auto' ? 'auto-approve' : settings?.approvalMode === 'auto-edits' ? 'auto edits' : settings?.approvalMode === 'read-only' ? 'read-only' : 'ask first'}
           </span>
           <button className={`icon-btn ${showPanel ? 'active' : ''}`} onClick={() => setShowPanel(!showPanel)} title="Toggle side panel (Ctrl+B)">
@@ -279,8 +339,14 @@ export function App() {
           currentId={current?.id ?? null}
           runningIds={runningIds}
           settings={settings}
-          onSelect={(id) => void openSession(id)}
-          onNew={() => void newSession()}
+          onSelect={(id) => {
+            setDrawer(false)
+            void openSession(id)
+          }}
+          onNew={() => {
+            setDrawer(false)
+            void newSession()
+          }}
           onRename={async (id, title) => {
             await window.forge.renameSession(id, title)
             if (current?.id === id) setCurrent({ ...current, title })
@@ -295,8 +361,12 @@ export function App() {
               else setCurrent(null)
             }
           }}
-          onSettings={() => setShowSettings(true)}
+          onSettings={() => {
+            setDrawer(false)
+            setShowSettings(true)
+          }}
         />
+        {mobile && drawer && <div className="drawer-scrim" onClick={() => setDrawer(false)} />}
 
         <main className="main">
           <div className="toolbar">
@@ -378,7 +448,18 @@ export function App() {
         </main>
 
         <AnimatePresence initial={false}>
-          {showPanel && (
+          {showPanel && mobile && (
+            <motion.div key="sheet" className="mobile-sheet" initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', stiffness: 380, damping: 36 }}>
+              <div className="sheet-head">
+                <span className="sheet-grip" />
+                <button className="icon-btn" onClick={() => setShowPanel(false)} aria-label="Close panel">
+                  <X size={16} />
+                </button>
+              </div>
+              <SidePanel session={current} settings={settings} running={running} refreshKey={refreshKey} />
+            </motion.div>
+          )}
+          {showPanel && !mobile && (
             <motion.div key="panel" initial={{ width: 0, opacity: 0 }} animate={{ width: 'auto', opacity: 1 }} exit={{ width: 0, opacity: 0 }} transition={{ duration: 0.22 }} style={{ display: 'flex', minHeight: 0, overflow: 'hidden' }}>
               <SidePanel session={current} settings={settings} running={running} refreshKey={refreshKey} />
             </motion.div>
@@ -386,6 +467,18 @@ export function App() {
         </AnimatePresence>
       </div>
 
+      <AnimatePresence>
+        {picking && (
+          <ProjectPicker
+            current={current?.projectDir ?? null}
+            onClose={() => setPicking(false)}
+            onPick={(dir) => {
+              setPicking(false)
+              void patchSession({ projectDir: dir })
+            }}
+          />
+        )}
+      </AnimatePresence>
       <AnimatePresence>
         {showSettings && settings && (
           <SettingsModal settings={settings} availableModels={availableModels} onClose={() => setShowSettings(false)} onChange={setSettings} onModels={setAvailableModels} />

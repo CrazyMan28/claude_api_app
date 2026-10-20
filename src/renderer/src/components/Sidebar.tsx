@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { KeyRound, Loader2, MessageSquare, Pencil, Plus, Search, Settings2, Trash2 } from 'lucide-react'
+import { KeyRound, Loader2, MessageSquare, Monitor, Pencil, Plus, Search, Settings2, Trash2 } from 'lucide-react'
 import type { PublicSettings, SessionSummary } from '@shared/types'
 import { dayGroup, fmtCost, relTime } from '../lib'
 
@@ -120,10 +120,17 @@ export function Sidebar({ sessions, currentId, runningIds, settings, onSelect, o
         ))}
       </div>
       <div className="sidebar-foot">
-        <div className="key-status">
-          <KeyRound size={14} style={{ color: settings?.hasApiKey ? 'var(--ok)' : 'var(--warn)', flex: 'none' }} />
-          <span>{settings?.hasApiKey ? `API key ${settings.keyHint}` : 'No API key'}</span>
-        </div>
+        {window.forge.mobile ? (
+          <div className="key-status">
+            <Monitor size={14} style={{ color: settings?.hasApiKey ? 'var(--ok)' : 'var(--warn)', flex: 'none' }} />
+            <span className="truncate">{settings?.hasApiKey ? window.forge.mobile.host : 'No API key on the PC'}</span>
+          </div>
+        ) : (
+          <div className="key-status">
+            <KeyRound size={14} style={{ color: settings?.hasApiKey ? 'var(--ok)' : 'var(--warn)', flex: 'none' }} />
+            <span>{settings?.hasApiKey ? `API key ${settings.keyHint}` : 'No API key'}</span>
+          </div>
+        )}
         <button className="icon-btn" onClick={onSettings} title="Settings (Ctrl+,)">
           <Settings2 size={16} />
         </button>

@@ -41,7 +41,7 @@ export function Composer({ running, disabledReason, canContinue, onSend, onStop,
         placeholder={disabledReason ?? (running ? 'Claude is working… (you can type your next message)' : 'Ask Claude to build, fix, explain or refactor…')}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !window.forge.mobile) {
             e.preventDefault()
             send()
           }

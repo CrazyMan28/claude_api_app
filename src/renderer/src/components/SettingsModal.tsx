@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { CheckCircle2, ExternalLink, Eye, EyeOff, KeyRound, Loader2, ShieldCheck, Trash2, X, XCircle } from 'lucide-react'
-import type { ApiKeyTestResult, ApprovalMode, PublicSettings, Settings } from '@shared/types'
-import { EFFORTS, MODELS, type Effort } from '@shared/models'
+import { CheckCircle2, ExternalLink, Eye, EyeOff, KeyRound, Loader2, LogOut, Monitor, ShieldCheck, Trash2, Wifi, WifiOff, X, XCircle } from 'lucide-react'
+import type { ApiKeyTestResult, ApprovalMode, MobileBridge, PublicSettings, Settings } from '@shared/types'
+import { EFFORTS, MODELS, findModel, type Effort } from '@shared/models'
+import { RemoteSection } from './RemoteSection'
 
 interface Props {
   settings: PublicSettings
@@ -99,6 +100,9 @@ export function SettingsModal({ settings, availableModels, onClose, onChange, on
             <X size={16} />
           </button>
         </div>
+        {window.forge.mobile ? (
+          <MobileSettingsBody bridge={window.forge.mobile} settings={settings} />
+        ) : (
         <div className="modal-body">
           <section className="field-group">
             <h3>
@@ -249,8 +253,62 @@ export function SettingsModal({ settings, availableModels, onClose, onChange, on
               </div>
             </div>
           </section>
+
+          <RemoteSection settings={settings} onChange={onChange} />
         </div>
+        )}
       </motion.div>
+    </div>
+  )
+}
+
+/** Settings in the Android app: the PC owns the API key and the agent settings. */
+function MobileSettingsBody({ bridge, settings }: { bridge: MobileBridge; settings: PublicSettings }) {
+  const [online, setOnline] = useState(true)
+  useEffect(() => bridge.onConnection(setOnline), [bridge])
+  return (
+    <div className="modal-body">
+      <section className="field-group">
+        <h3>
+          <Monitor size={13} /> Connected PC
+        </h3>
+        <div className="key-card">
+          <div className="input-row">
+            {online ? <Wifi size={16} style={{ color: 'var(--ok)' }} /> : <WifiOff size={16} style={{ color: 'var(--warn)' }} />}
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <code className="truncate">{bridge.host}</code>
+              <div className="muted" style={{ fontSize: 12 }}>
+                {online ? 'Connected over Tailscale' : 'Reconnecting… make sure Tailscale is on and Forge is running on the PC.'}
+              </div>
+            </span>
+          </div>
+          <button
+            className="btn danger"
+            onClick={() => {
+              if (confirm('Unpair this phone? You will need to scan a new QR code from Forge on your PC.')) void bridge.unpair()
+            }}
+          >
+            <LogOut size={14} /> Unpair this phone
+          </button>
+        </div>
+      </section>
+      <section className="field-group">
+        <h3>On the PC</h3>
+        <div className="key-card">
+          <div className="input-row">
+            <KeyRound size={15} style={{ color: settings.hasApiKey ? 'var(--ok)' : 'var(--warn)' }} />
+            <span>{settings.hasApiKey ? 'API key saved on the PC (it never leaves the PC)' : 'No API key yet. Add one in Forge on the PC.'}</span>
+          </div>
+          <div className="muted">
+            Approvals: {APPROVAL_LABELS[settings.approvalMode]}
+            <br />
+            New sessions: {findModel(settings.defaultModel)?.label ?? settings.defaultModel} · {settings.defaultEffort} effort
+          </div>
+          <div className="muted" style={{ fontSize: 12 }}>
+            Change these in Forge Settings on the PC.
+          </div>
+        </div>
+      </section>
     </div>
   )
 }

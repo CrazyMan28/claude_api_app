@@ -26,10 +26,21 @@ const api: ForgeApi = {
   gitLog: (dir) => invoke('git:log', dir),
   usageSummary: () => invoke('usage:summary'),
   openExternal: (url) => invoke('shell:openExternal', url),
+  listProjects: () => invoke('projects:list'),
+  runningSessions: () => invoke('agent:runningSessions'),
+  pendingApprovals: () => invoke('agent:pendingApprovals'),
+  remoteStatus: () => invoke('remote:status'),
+  remoteStartPairing: () => invoke('remote:startPairing'),
+  remoteRevoke: (id) => invoke('remote:revoke', id),
   onAgentEvent: (cb) => {
     const listener = (_e: unknown, sessionId: string, ev: AgentEvent): void => cb(sessionId, ev)
     ipcRenderer.on('agent:event', listener)
     return () => ipcRenderer.removeListener('agent:event', listener)
+  },
+  onSessionsChanged: (cb) => {
+    const listener = (): void => cb()
+    ipcRenderer.on('sessions:changed', listener)
+    return () => ipcRenderer.removeListener('sessions:changed', listener)
   },
   platform: process.platform
 }

@@ -53,6 +53,8 @@ export interface AgentDeps {
 interface ActiveRun {
   abort: AbortController
   approvals: Map<string, (ok: boolean) => void>
+  /** the open approval requests, so a client that connects mid-run can show them */
+  requests: Map<string, ApprovalRequest>
 }
 
 export class LimitError extends Error {}
@@ -134,6 +136,14 @@ export class Agent {
     return this.runs.has(sessionId)
   }
 
+  runningSessionIds(): string[] {
+    return [...this.runs.keys()]
+  }
+
+  pendingApprovals(): ApprovalRequest[] {
+    return [...this.runs.values()].flatMap((r) => [...r.requests.values()])
+  }
+
   async send(sessionId: string, text: string): Promise<void> {
     const trimmed = text.trim()
     if (!trimmed) return
@@ -164,6 +174,7 @@ export class Agent {
       resolve(false)
     }
     run.approvals.clear()
+    run.requests.clear()
   }
 
   respondApproval(requestId: string, decision: ApprovalDecision): void {
@@ -171,6 +182,7 @@ export class Agent {
       const resolve = run.approvals.get(requestId)
       if (resolve) {
         run.approvals.delete(requestId)
+        run.requests.delete(requestId)
         resolve(decision !== 'deny')
         if (decision === 'always') {
           // handled by the caller-side closure via pendingAlways
@@ -199,7 +211,7 @@ export class Agent {
   private async start(sessionId: string, prepare: (s: Session) => Promise<ApiMessage[]>): Promise<void> {
     if (this.runs.has(sessionId)) throw new Error('This session is already running.')
     // Claim the session synchronously so two quick sends can't both start a run.
-    const run: ActiveRun = { abort: new AbortController(), approvals: new Map() }
+    const run: ActiveRun = { abort: new AbortController(), approvals: new Map(), requests: new Map() }
     this.runs.set(sessionId, run)
     const session = await this.deps.sessions.get(sessionId).catch(() => null)
     const streamer = this.deps.streamer()
@@ -285,6 +297,7 @@ export class Agent {
     const request: ApprovalRequest = { requestId: randomUUID(), sessionId, toolUseId, tool: tool.name, summary, input, diff }
     const ok = await new Promise<boolean>((resolve) => {
       run.approvals.set(request.requestId, resolve)
+      run.requests.set(request.requestId, request)
       this.pendingAlways.set(request.requestId, () => {
         const set = this.alwaysAllow.get(sessionId) ?? new Set<string>()
         set.add(tool.kind)
