@@ -31,7 +31,7 @@ export function App() {
   const [progress, setProgress] = useState<Record<string, string[]>>({})
   const [notices, setNotices] = useState<Notice[]>([])
   const [showSettings, setShowSettings] = useState(false)
-  const [showPanel, setShowPanel] = useState(true)
+  const [showPanel, setShowPanel] = useState(() => window.innerWidth >= 1280)
   const [availableModels, setAvailableModels] = useState<string[] | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 

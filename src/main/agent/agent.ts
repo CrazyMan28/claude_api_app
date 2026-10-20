@@ -159,7 +159,10 @@ export class Agent {
     const run = this.runs.get(sessionId)
     if (!run) return
     run.abort.abort()
-    for (const resolve of run.approvals.values()) resolve(false)
+    for (const [id, resolve] of run.approvals) {
+      this.pendingAlways.delete(id)
+      resolve(false)
+    }
     run.approvals.clear()
   }
 
@@ -195,13 +198,15 @@ export class Agent {
 
   private async start(sessionId: string, prepare: (s: Session) => Promise<ApiMessage[]>): Promise<void> {
     if (this.runs.has(sessionId)) throw new Error('This session is already running.')
-    const session = await this.deps.sessions.get(sessionId)
-    if (!session) throw new Error('Session not found.')
-    const streamer = this.deps.streamer()
-    if (!streamer) throw new Error('Add your Anthropic API key in Settings first.')
-
+    // Claim the session synchronously so two quick sends can't both start a run.
     const run: ActiveRun = { abort: new AbortController(), approvals: new Map() }
     this.runs.set(sessionId, run)
+    const session = await this.deps.sessions.get(sessionId).catch(() => null)
+    const streamer = this.deps.streamer()
+    if (!session || !streamer) {
+      this.runs.delete(sessionId)
+      throw new Error(!session ? 'Session not found.' : 'Add your Anthropic API key in Settings first.')
+    }
     const emit = (ev: AgentEvent): void => this.deps.emit(sessionId, ev)
     emit({ type: 'run_start' })
 
@@ -274,14 +279,15 @@ export class Agent {
       this.deps.emit(sessionId, { type: 'notice', level: 'warn', message: `Read-only mode: blocked ${tool.name}.` })
       return false
     }
-    if (this.alwaysAllow.get(sessionId)?.has(tool.name)) return true
+    // "Always allow" covers the whole category: all file edits, or all commands.
+    if (this.alwaysAllow.get(sessionId)?.has(tool.kind)) return true
     if (run.abort.signal.aborted) return false
     const request: ApprovalRequest = { requestId: randomUUID(), sessionId, toolUseId, tool: tool.name, summary, input, diff }
     const ok = await new Promise<boolean>((resolve) => {
       run.approvals.set(request.requestId, resolve)
       this.pendingAlways.set(request.requestId, () => {
         const set = this.alwaysAllow.get(sessionId) ?? new Set<string>()
-        set.add(tool.name)
+        set.add(tool.kind)
         this.alwaysAllow.set(sessionId, set)
       })
       this.deps.emit(sessionId, { type: 'approval', request })

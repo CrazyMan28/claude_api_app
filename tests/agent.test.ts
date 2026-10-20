@@ -105,15 +105,17 @@ describe('agent loop', () => {
     expect(lastEnd().status).toBe('completed')
   })
 
-  it('"always" approval skips later prompts for that tool in the session', async () => {
+  it('"always" approval skips later prompts for that category (edits) in the session', async () => {
     const streamer = new ScriptedStreamer([
       () => message([{ type: 'tool_use', id: 't1', name: 'write_file', input: { path: 'a.txt', content: '1' } }], 'tool_use'),
+      () => message([{ type: 'tool_use', id: 't0', name: 'edit_file', input: { path: 'a.txt', old_string: '1', new_string: '2' } }], 'tool_use'),
       () => message([{ type: 'tool_use', id: 't2', name: 'write_file', input: { path: 'b.txt', content: '2' } }], 'tool_use'),
       () => message([{ type: 'text', text: 'done' }], 'end_turn')
     ])
     const agent = makeAgent(streamer)
     const s = await sessions.create({ projectDir, model: 'claude-opus-5-5', effort: 'high' })
     const run = agent.send(s.id, 'write two files')
+    await expect(agent.send(s.id, 'second send while running')).rejects.toThrow(/already running/)
     await waitFor(() => events.some((e) => e.type === 'approval'))
     const req = (events.find((e) => e.type === 'approval') as Extract<AgentEvent, { type: 'approval' }>).request
     agent.respondApproval(req.requestId, 'always')
