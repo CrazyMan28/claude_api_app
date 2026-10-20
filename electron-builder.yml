@@ -1,0 +1,29 @@
+appId: com.crazyman28.forge
+productName: Forge
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**
+  - package.json
+  - "!**/*.map"
+asar: true
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+  artifactName: ${productName}-${version}-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Forge
+  artifactName: Forge-Setup-${version}.${ext}
+portable:
+  artifactName: Forge-Portable-${version}.${ext}
+publish: null
