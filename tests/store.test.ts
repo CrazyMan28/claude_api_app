@@ -49,6 +49,8 @@ describe('sessions', () => {
     const a = await store.create({ projectDir: null, model: 'claude-opus-5-5', effort: 'high' })
     await new Promise((r) => setTimeout(r, 5))
     const b = await store.create({ projectDir: '/p', model: 'claude-sonnet-5-5', effort: 'low' })
+    // the rename must land in a later millisecond than b's creation, or the two tie on updatedAt
+    await new Promise((r) => setTimeout(r, 5))
     await store.rename(a.id, '  Fix the build  ')
     const fresh = new SessionStore(dir)
     const list = await fresh.list()
