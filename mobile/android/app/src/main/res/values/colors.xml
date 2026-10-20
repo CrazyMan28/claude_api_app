@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="forge_bg">#06070C</color>
+    <color name="colorPrimary">#8B7BFF</color>
+    <color name="colorPrimaryDark">#06070C</color>
+    <color name="colorAccent">#2FD6F5</color>
+</resources>

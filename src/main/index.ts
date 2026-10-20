@@ -8,6 +8,9 @@ import { SessionStore } from './store/sessions'
 import { Ledger } from './store/ledger'
 import { Agent, describeApiError, sdkStreamer } from './agent/agent'
 import { gitDiff, gitLog, gitStatus } from './agent/git'
+import { DeviceStore } from './remote/devices'
+import { RemoteController } from './remote/controller'
+import { remoteMethods, type Handlers } from './remote/methods'
 
 // Smoke-test hooks (used by CI/e2e only): isolated data dir.
 if (process.env.FORGE_USER_DATA) app.setPath('userData', process.env.FORGE_USER_DATA)
@@ -34,6 +37,8 @@ let settings: SettingsStore
 let sessions: SessionStore
 let ledger: Ledger
 let agent: Agent
+let devices: DeviceStore
+let remote: RemoteController
 let mainWindow: BrowserWindow | null = null
 
 function makeClient(apiKey: string): Anthropic {
@@ -50,7 +55,25 @@ function makeClient(apiKey: string): Anthropic {
 
 function emit(sessionId: string, ev: AgentEvent): void {
   mainWindow?.webContents.send('agent:event', sessionId, ev)
+  remote?.broadcast({ type: 'agent', sessionId, ev })
 }
+
+/** Tell every client (this window and paired phones) to reload the session list. */
+function sessionsChanged(): void {
+  mainWindow?.webContents.send('sessions:changed')
+  remote?.broadcast({ type: 'sessions' })
+}
+
+async function knownProjects(): Promise<string[]> {
+  const dirs = new Set<string>()
+  const last = settings.get().lastProjectDir
+  if (last) dirs.add(last)
+  for (const s of await sessions.list()) if (s.projectDir) dirs.add(s.projectDir)
+  return [...dirs]
+}
+
+// Automated UI tests only: serve "remote access" on loopback instead of the Tailscale interface.
+const remoteLoopbackForTests = !app.isPackaged && process.env.FORGE_E2E_REMOTE_LOOPBACK === '1'
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -92,12 +115,12 @@ async function newSession(projectDir?: string | null): Promise<Session> {
   return sessions.create({ projectDir: dir ?? null, model: s.defaultModel, effort: s.defaultEffort })
 }
 
-function registerIpc(): void {
+function buildHandlers(): Handlers {
+  const h: Handlers = {}
   const handle = <A extends unknown[], R>(channel: string, fn: (...args: A) => Promise<R> | R): void => {
-    ipcMain.handle(channel, (_e, ...args) => fn(...(args as A)))
+    h[channel] = fn as Handlers[string]
   }
   handle('settings:get', () => settings.publicView())
-  handle('settings:update', (patch: Partial<Settings>) => settings.update(patch))
   handle('apikey:set', (key: string) => settings.setApiKey(String(key)))
   handle('apikey:clear', () => settings.clearApiKey())
   handle('apikey:test', async (): Promise<ApiKeyTestResult> => {
@@ -145,6 +168,9 @@ function registerIpc(): void {
   handle('agent:stop', (id: string) => agent.stop(id))
   handle('agent:running', (id: string) => agent.isRunning(id))
   handle('agent:approval', (requestId: string, decision: ApprovalDecision) => agent.respondApproval(requestId, decision))
+  handle('agent:runningSessions', () => agent.runningSessionIds())
+  handle('agent:pendingApprovals', () => agent.pendingApprovals())
+  handle('projects:list', () => knownProjects())
   handle('dialog:pickDirectory', async () => {
     if (process.env.FORGE_E2E_PROJECT_DIR) return process.env.FORGE_E2E_PROJECT_DIR // automated UI tests only
     const r = await dialog.showOpenDialog(mainWindow!, { properties: ['openDirectory', 'createDirectory'], title: 'Choose project folder' })
@@ -158,13 +184,42 @@ function registerIpc(): void {
     const allowed = ['https://platform.claude.com', 'https://console.anthropic.com', 'https://docs.claude.com', 'https://support.claude.com']
     if (allowed.some((a) => url === a || url.startsWith(a + '/'))) await shell.openExternal(url)
   })
+  handle('settings:update', async (patch: Partial<Settings>) => {
+    const view = await settings.update(patch)
+    if (patch.remote) await remote.refresh()
+    return view
+  })
+  handle('remote:status', async () => {
+    await remote.refresh()
+    return remote.status()
+  })
+  handle('remote:startPairing', () => remote.startPairing())
+  handle('remote:revoke', async (id: string) => {
+    await remote.revoke(String(id))
+    return remote.status()
+  })
+  // Session list changes are pushed to every client, wherever they came from.
+  for (const ch of ['sessions:create', 'sessions:rename', 'sessions:delete', 'sessions:update']) {
+    const fn = h[ch]!
+    h[ch] = async (...args: unknown[]) => {
+      const r = await fn(...args)
+      sessionsChanged()
+      return r
+    }
+  }
+  return h
+}
+
+function registerIpc(h: Handlers): void {
+  for (const [channel, fn] of Object.entries(h)) ipcMain.handle(channel, (_e, ...args) => fn(...args))
 }
 
 app.whenReady().then(async () => {
   settings = new SettingsStore(dataDir(), cipher())
   sessions = new SessionStore(dataDir())
   ledger = new Ledger(dataDir())
-  await Promise.all([settings.load(), ledger.load()])
+  devices = new DeviceStore(dataDir())
+  await Promise.all([settings.load(), ledger.load(), devices.load()])
   agent = new Agent({
     settings,
     sessions,
@@ -186,12 +241,23 @@ app.whenReady().then(async () => {
       }
     })
   })
-  registerIpc()
+  const handlers = buildHandlers()
+  remote = new RemoteController({
+    devices,
+    methods: remoteMethods(handlers, knownProjects, (id) => remote.revoke(id)),
+    settings: () => settings.get().remote,
+    onChange: () => {},
+    ...(remoteLoopbackForTests ? { findAddress: () => '127.0.0.1', dnsName: async () => null, allowPeer: (a) => a === '127.0.0.1' || a === '::ffff:127.0.0.1' } : {})
+  })
+  remote.watch()
+  registerIpc(handlers)
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
+
+app.on('before-quit', () => void remote?.dispose())
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

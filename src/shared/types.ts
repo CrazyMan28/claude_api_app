@@ -76,6 +76,48 @@ export interface Settings {
   limitDaily: number
   limitMonthly: number
   lastProjectDir: string | null
+  /** phone access over Tailscale; off until the user turns it on */
+  remote: RemoteSettings
+}
+
+export interface RemoteSettings {
+  enabled: boolean
+  port: number
+}
+
+export interface RemoteDevice {
+  id: string
+  name: string
+  createdAt: number
+  lastSeen: number | null
+  online: boolean
+}
+
+export interface RemoteStatus {
+  enabled: boolean
+  listening: boolean
+  /** this PC's Tailscale address, if Tailscale is up */
+  address: string | null
+  /** MagicDNS name, e.g. my-pc.tailnet-1234.ts.net */
+  dnsName: string | null
+  port: number
+  error: string | null
+  devices: RemoteDevice[]
+}
+
+export interface PairingOffer {
+  /** forge://pair?... link encoded in the QR code */
+  link: string
+  /** QR code as an SVG data URL */
+  qr: string
+  expiresAt: number
+}
+
+/** Present only in the Android app: the connection to the paired PC. */
+export interface MobileBridge {
+  host: string
+  unpair(): Promise<void>
+  onConnection(cb: (online: boolean) => void): () => void
 }
 
 export interface PublicSettings extends Settings {
@@ -169,6 +211,16 @@ export interface ForgeApi {
   gitLog(dir: string): Promise<GitCommit[]>
   usageSummary(): Promise<UsageSummary>
   openExternal(url: string): Promise<void>
+  /** project folders already used by a session (what the phone may choose from) */
+  listProjects(): Promise<string[]>
+  runningSessions(): Promise<string[]>
+  pendingApprovals(): Promise<ApprovalRequest[]>
+  remoteStatus(): Promise<RemoteStatus>
+  remoteStartPairing(): Promise<PairingOffer>
+  remoteRevoke(deviceId: string): Promise<RemoteStatus>
   onAgentEvent(cb: (sessionId: string, ev: AgentEvent) => void): () => void
+  /** a session was created, renamed or deleted (possibly from another device) */
+  onSessionsChanged(cb: () => void): () => void
   platform: string
+  mobile?: MobileBridge
 }

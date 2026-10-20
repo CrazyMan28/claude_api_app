@@ -22,7 +22,8 @@ export const DEFAULT_SETTINGS: Settings = {
   limitPerSession: 0,
   limitDaily: 0,
   limitMonthly: 0,
-  lastProjectDir: null
+  lastProjectDir: null,
+  remote: { enabled: false, port: 47821 }
 }
 
 const APPROVAL_MODES: ApprovalMode[] = ['ask', 'auto-edits', 'auto', 'read-only']
@@ -42,6 +43,12 @@ function sanitize(patch: Partial<Settings>, base: Settings): Settings {
   out.limitDaily = num(patch.limitDaily, 0, 1e6) ?? out.limitDaily
   out.limitMonthly = num(patch.limitMonthly, 0, 1e6) ?? out.limitMonthly
   if (patch.lastProjectDir === null || typeof patch.lastProjectDir === 'string') out.lastProjectDir = patch.lastProjectDir
+  out.remote = { ...base.remote }
+  if (patch.remote && typeof patch.remote === 'object') {
+    if (typeof patch.remote.enabled === 'boolean') out.remote.enabled = patch.remote.enabled
+    const port = num(patch.remote.port, 1024, 65535)
+    if (port !== undefined) out.remote.port = Math.round(port)
+  }
   return out
 }
 

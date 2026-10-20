@@ -1,4 +1,4 @@
-name: Build Windows app
+name: Build & release (Windows + Android)
 
 on:
   push:
@@ -11,7 +11,8 @@ permissions:
 
 concurrency:
   group: build-${{ github.ref }}
-  cancel-in-progress: true
+  # never cancel a main build: each push to main publishes a release
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   test-linux:
@@ -29,6 +30,10 @@ jobs:
       - run: npm run build
       - name: UI end-to-end test (Electron under Xvfb)
         run: xvfb-run -a -s "-screen 0 1600x1000x24" node e2e/ui.e2e.mjs
+      - name: Phone end-to-end test (Android web layer paired with the desktop app)
+        run: |
+          npm run build:mobile
+          xvfb-run -a -s "-screen 0 1600x1000x24" node e2e/mobile.e2e.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -77,6 +82,74 @@ jobs:
           name: screenshots-windows
           path: e2e/screenshots/
           if-no-files-found: ignore
+
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      FORGE_VERSION_CODE: ${{ github.run_number }}
+      FORGE_VERSION_NAME: 1.0.${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - run: npm ci
+      - name: Build the app's web layer and sync it into the Android project
+        run: npm run android:sync
+      - name: Release signing key (from repository secrets, if set)
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/forge-release.jks"
+            {
+              echo "FORGE_KEYSTORE_FILE=$RUNNER_TEMP/forge-release.jks"
+              echo "FORGE_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD"
+              echo "FORGE_KEY_ALIAS=$ANDROID_KEY_ALIAS"
+              echo "FORGE_KEY_PASSWORD=${ANDROID_KEY_PASSWORD:-$ANDROID_KEYSTORE_PASSWORD}"
+            } >> "$GITHUB_ENV"
+            echo "Signing with the release key from repository secrets."
+          else
+            echo "::warning::ANDROID_KEYSTORE_BASE64 is not set, so the APK is signed with a throwaway debug key. Android will not install it over a differently signed Forge; see README → Android release signing."
+          fi
+      - name: Build release APK
+        working-directory: mobile/android
+        run: ./gradlew assembleRelease --no-daemon
+      - name: Verify and rename APK
+        run: |
+          apk=mobile/android/app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner" verify --print-certs "$apk"
+          mkdir -p dist-android
+          cp "$apk" "dist-android/Forge-Android-1.0.${{ github.run_number }}.apk"
+          ls -la dist-android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Forge-Android-1.0.${{ github.run_number }}
+          path: dist-android/*.apk
+          if-no-files-found: error
+
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test-linux, build-windows, build-android]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Forge-*-1.0.${{ github.run_number }}
+          path: release
+          merge-multiple: true
+      - run: ls -la release
       - name: Publish GitHub Release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
@@ -85,15 +158,19 @@ jobs:
           name: Forge v1.0.${{ github.run_number }}
           make_latest: true
           body: |
-            Forge — a Windows desktop coding agent that calls the Anthropic Messages API directly with your own API key.
+            Forge — a Windows desktop coding agent (with an Android companion app) that calls the Anthropic Messages API directly with your own API key.
 
             **Downloads**
             - `Forge-Setup-1.0.${{ github.run_number }}.exe` — installer (recommended)
             - `Forge-Portable-1.0.${{ github.run_number }}.exe` — single-file portable build, no install
 
+            - `Forge-Android-1.0.${{ github.run_number }}.apk` — Forge for Android: pair it with Forge on your PC (Settings → Phone) over Tailscale
+
             The executables are not code-signed, so Windows SmartScreen may show "Windows protected your PC". Click **More info → Run anyway**.
+            To install the APK, open it on your phone and allow installs from your browser/files app when Android asks.
 
             Built from ${{ github.sha }}.
           files: |
-            dist/Forge-Setup-*.exe
-            dist/Forge-Portable-*.exe
+            release/Forge-Setup-*.exe
+            release/Forge-Portable-*.exe
+            release/Forge-Android-*.apk
