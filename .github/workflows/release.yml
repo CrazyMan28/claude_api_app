@@ -1,4 +1,4 @@
-name: Build & release (Windows + Android)
+name: Build & release (Windows + Linux + Android)
 
 on:
   push:
@@ -83,6 +83,40 @@ jobs:
           path: e2e/screenshots/
           if-no-files-found: ignore
 
+  build-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Set version
+        run: npm version "1.0.${{ github.run_number }}" --no-git-tag-version --allow-same-version
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Package AppImage and .deb
+        run: npx electron-builder --linux --publish never
+      - name: Smoke-test the packaged app
+        run: xvfb-run -a -s "-screen 0 1600x1000x24" node e2e/packaged-smoke.mjs
+      - name: List build output
+        run: ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Forge-Linux-1.0.${{ github.run_number }}
+          path: |
+            dist/Forge-*.AppImage
+            dist/Forge-*.deb
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots-linux-packaged
+          path: e2e/screenshots/
+          if-no-files-found: ignore
+
   build-android:
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -140,7 +174,7 @@ jobs:
 
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [test-linux, build-windows, build-android]
+    needs: [test-linux, build-windows, build-linux, build-android]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -158,13 +192,16 @@ jobs:
           name: Forge v1.0.${{ github.run_number }}
           make_latest: true
           body: |
-            Forge — a Windows desktop coding agent (with an Android companion app) that calls the Anthropic Messages API directly with your own API key.
+            Forge — a Windows and Linux desktop coding agent (with an Android companion app) that calls the Anthropic Messages API directly with your own API key.
 
             **Downloads**
             - `Forge-Setup-1.0.${{ github.run_number }}.exe` — installer (recommended)
             - `Forge-Portable-1.0.${{ github.run_number }}.exe` — single-file portable build, no install
 
-            - `Forge-Android-1.0.${{ github.run_number }}.apk` — Forge for Android: pair it with Forge on your PC (Settings → Phone) over Tailscale
+            - `Forge-1.0.${{ github.run_number }}-x86_64.AppImage` — Linux, runs on most distros (`chmod +x` it, then run it)
+            - `Forge-1.0.${{ github.run_number }}-amd64.deb` — Linux, Debian/Ubuntu package (`sudo apt install ./Forge-1.0.${{ github.run_number }}-amd64.deb`)
+
+            - `Forge-Android-1.0.${{ github.run_number }}.apk` — Forge for Android: pair it with Forge on your Windows or Linux PC (Settings → Phone) over Tailscale
 
             The executables are not code-signed, so Windows SmartScreen may show "Windows protected your PC". Click **More info → Run anyway**.
             To install the APK, open it on your phone and allow installs from your browser/files app when Android asks.
@@ -173,4 +210,6 @@ jobs:
           files: |
             release/Forge-Setup-*.exe
             release/Forge-Portable-*.exe
+            release/Forge-*.AppImage
+            release/Forge-*.deb
             release/Forge-Android-*.apk
