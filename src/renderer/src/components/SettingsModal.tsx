@@ -132,7 +132,7 @@ export function SettingsModal({ settings, availableModels, onClose, onChange, on
                 </div>
               ) : (
                 <div className="muted">
-                  Paste an API key from the Claude Console (API keys page). It is encrypted with your Windows account (DPAPI) and never leaves this computer except to authenticate requests to api.anthropic.com.
+                  Paste an API key from the Claude Console (API keys page). It is encrypted with {window.forge.platform === 'win32' ? 'your Windows account (DPAPI)' : 'the OS keychain'} and never leaves this computer except to authenticate requests to api.anthropic.com.
                 </div>
               )}
               <div className="input-row">
@@ -163,7 +163,7 @@ export function SettingsModal({ settings, availableModels, onClose, onChange, on
                   {test.ok ? <CheckCircle2 size={14} /> : <XCircle size={14} />} <span>{test.message}</span>
                 </div>
               )}
-              {!settings.encryptionAvailable && <div className="test-result err">OS-level encryption is unavailable, so keys cannot be stored.</div>}
+              {!settings.encryptionAvailable && <div className="test-result err">OS-level encryption is unavailable, so keys cannot be stored.{window.forge.platform === 'linux' && ' Install and unlock a keyring (GNOME Keyring or KWallet), then restart Forge.'}</div>}
               <div className="muted">
                 The test makes one tiny request to Claude Haiku 5.5 (a tiny fraction of a cent) to confirm the key can bill.{' '}
                 <button className="link" onClick={() => void window.forge.openExternal('https://platform.claude.com/settings/keys')}>

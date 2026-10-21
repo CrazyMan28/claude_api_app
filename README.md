@@ -1,6 +1,6 @@
 # Forge
 
-A Windows 11 desktop coding agent, with an Android companion app, that runs Claude through the **official Anthropic Messages API** with your own API key. It does not use the Claude Code executable or a Claude subscription login.
+A desktop coding agent for Windows 11 and Linux, with an Android companion app, that runs Claude through the **official Anthropic Messages API** with your own API key. It does not use the Claude Code executable or a Claude subscription login.
 
 ![Forge conversation](docs/conversation.png)
 
@@ -15,6 +15,15 @@ Anthropic's monthly API credits for Max and Team plans cover "The Claude API (Me
 3. On first launch, paste your API key (`sk-ant-…`) and press **Save & test**. The test sends one tiny Claude Haiku 5.5 request to confirm the key can actually bill.
 4. Choose a project folder and start asking.
 
+### Linux
+
+Same app, same UI and features as on Windows. Download one of these from [Releases](../../releases/latest):
+
+- `Forge-<version>-x86_64.AppImage` runs on most distros: `chmod +x Forge-*.AppImage && ./Forge-*.AppImage`. Older distros may need `libfuse2` to run AppImages.
+- `Forge-<version>-amd64.deb` for Debian/Ubuntu: `sudo apt install ./Forge-<version>-amd64.deb`, then start **Forge** from the app menu or run `forge`.
+
+On Linux the API key is encrypted with the desktop keyring (GNOME Keyring / KWallet, through libsecret). Most desktops already run one; if Settings says OS-level encryption is unavailable, install and unlock one and restart Forge. `run_command` uses bash. For phone pairing, install Tailscale so the `tailscale` CLI is on your PATH.
+
 ## Forge for Android
 
 Use Forge from your phone: see, start, rename and delete sessions, chat with live streaming, approve or deny edits and commands, stop and continue runs, switch model and effort, and browse the Changes, Git and Usage panels. The agent still runs on your PC with your PC's API key; the phone is a remote control over your private [Tailscale](https://tailscale.com) network. It is the same UI as the desktop app, laid out for a phone.
@@ -27,7 +36,7 @@ Use Forge from your phone: see, start, rename and delete sessions, chat with liv
 
 1. Install Tailscale on the PC and on the phone, and sign in to the **same** tailnet on both.
 2. Download `Forge-Android-<version>.apk` from [Releases](../../releases/latest) on the phone and open it (allow installs from your browser or Files app when Android asks).
-3. On the PC: Forge → **Settings → Phone**, turn it on, press **Pair a phone**. If Windows Firewall asks whether Forge may accept connections, allow it (Forge listens only on the Tailscale address).
+3. On the PC: Forge → **Settings → Phone**, turn it on, press **Pair a phone**. If Windows Firewall (or your Linux firewall) asks whether Forge may accept connections, allow it (Forge listens only on the Tailscale address).
 4. In Forge on the phone, tap **Scan QR code** and scan the code on the PC screen.
 
 ![pairing QR code in Windows Settings](docs/pairing-qr.png)
@@ -53,7 +62,7 @@ Add these repository secrets (Settings → Secrets and variables → Actions): `
 
 ## Features
 
-- **Coding agent loop.** Streams `messages.stream` responses and runs tools until the task is done: `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`, `run_command` (PowerShell 7 if installed, otherwise Windows PowerShell), `git_status`, `git_diff` and `git_log`. Tool inputs are validated with zod and confined to the project folder; symlink and junction escapes are refused.
+- **Coding agent loop.** Streams `messages.stream` responses and runs tools until the task is done: `read_file`, `write_file`, `edit_file`, `list_dir`, `glob`, `grep`, `run_command` (on Windows PowerShell 7 if installed, otherwise Windows PowerShell; bash on Linux), `git_status`, `git_diff` and `git_log`. Tool inputs are validated with zod and confined to the project folder; symlink and junction escapes are refused.
 - **Subagents.** The `task` tool lets Claude hand broad exploration to a read-only subagent. The subagent's model and effort are configurable; the default is Sonnet 5.5 at medium effort.
 - **Models.** Claude Opus 5.5 is the default. Fable 5.1, Sonnet 5.5, Haiku 5.5, Opus 5, Fable 5, Sonnet 5, Opus 4.8 and Opus 4.7 are also available. Effort can be low, medium, high, xhigh or max, with adaptive thinking and summarized thinking shown live.
 - **Approvals.** Four modes: ask before edits and commands, auto-approve edits, auto-approve everything, or read-only. Approval cards show the exact diff or command. Keys: `Y` approve, `N` deny, plus "always allow" for the rest of the session.
@@ -65,7 +74,7 @@ Add these repository secrets (Settings → Secrets and variables → Actions): `
   - Forge never shows a credit balance, because it cannot read one. Check yours at the Console's Billing page.
 - **Git and diffs.** The Changes panel shows the diffs Claude made this session. The Git panel shows status, a per-file `git diff` and recent commits.
 - **Security.**
-  - The API key is encrypted with Windows DPAPI through Electron `safeStorage`. It is never written in plaintext or sent to the renderer.
+  - The API key is encrypted through Electron `safeStorage`: Windows DPAPI on Windows, the desktop keyring on Linux. It is never written in plaintext or sent to the renderer.
   - The renderer runs sandboxed with context isolation, no Node access and a strict Content Security Policy.
   - Requests always go to `https://api.anthropic.com`. `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN` from the environment are ignored.
 - **Cost-aware requests.** Prompts are cached, which makes repeated context much cheaper. Tool input is streamed eagerly, so long file writes appear as they're generated. Refusal fallback (`fallbacks: "default"`) is optional and on by default.
@@ -83,6 +92,7 @@ npm run typecheck
 npm test             # unit tests (agent loop, tools, stores, pricing)
 npm run test:e2e     # drives the real app against a local mock of the Messages API (use xvfb-run on Linux)
 npm run dist:win     # build the NSIS installer and portable EXE (on Windows)
+npm run dist:linux   # build the AppImage and .deb (on Linux)
 npm run test:e2e:mobile  # pairs the phone web app (in Chromium at a phone size) with the real desktop app
 npm run android:apk  # build the Android APK (needs JDK 21 and the Android SDK; ANDROID_HOME set)
 ```
@@ -99,5 +109,6 @@ CI (`.github/workflows/release.yml`) does the following on every push:
 
 - Runs the tests on Linux and on Windows, including the phone-to-PC end-to-end test.
 - Builds both Windows executables, smoke-tests the packaged `Forge.exe` and uploads the executables as artifacts.
+- Builds the Linux AppImage and .deb, smoke-tests the packaged app and uploads them as artifacts.
 - Builds the Android APK (`Forge-Android-<version>.apk`) and uploads it as an artifact.
-- On `main`, also publishes a GitHub Release `v1.0.<run>` with the installer, the portable EXE and the APK.
+- On `main`, also publishes a GitHub Release `v1.0.<run>` with the installer, the portable EXE, the AppImage, the .deb and the APK.

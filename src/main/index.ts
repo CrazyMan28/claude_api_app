@@ -24,7 +24,7 @@ const osCipher: SecretCipher = {
 }
 
 // Headless Linux CI has no keyring. Only unpackaged dev/test builds may opt into this
-// obfuscating (NOT secure) store; the packaged app always uses the OS (DPAPI on Windows).
+// obfuscating (NOT secure) store; the packaged app always uses the OS (DPAPI on Windows, the keyring on Linux).
 const testCipher: SecretCipher = {
   isAvailable: () => true,
   encrypt: (plain) => Buffer.from(`forge-test:${Buffer.from(plain).toString('base64')}`),
